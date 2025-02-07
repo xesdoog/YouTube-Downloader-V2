@@ -1,0 +1,9 @@
+glfw
+imgui
+numpy
+opencv-python
+requests
+pillow
+PyOpenGL
+pytubefix
+pywin32
