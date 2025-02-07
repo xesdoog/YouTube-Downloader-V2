@@ -617,7 +617,7 @@ def OnDraw():
                 imgui.set_tooltip('Click to visit the GitHub repo')
             imgui.pop_style_var()
             if imgui.is_item_clicked():
-                webbrowser.open("https://github.com/xesdoog")
+                webbrowser.open("https://github.com/xesdoog/YouTube-Downloader-V2")
         imgui.pop_font()
         imgui.pop_style_color(9)
         imgui.pop_style_var(5)
