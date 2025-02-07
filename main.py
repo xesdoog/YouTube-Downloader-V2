@@ -42,19 +42,20 @@ RESOLUTIONS    = ["Auto",
                  "2160p",
                 ]
 
-Icons            = gui.Icons
-res_index        = 0
-video_link       = ""
-current_filepath = ""
-task_status      = "Idle."
-is_available     = False
-is_playlist      = False
-thumb_downloaded = False
-audio_only       = False
-thumb_texture    = None
-current_filesize = 0
-progress_value   = 0
-video_info       = {
+Icons                = gui.Icons
+res_index            = 0
+video_link           = ""
+current_filepath     = ""
+task_status          = "Idle."
+is_available         = False
+is_playlist          = False
+thumb_downloaded     = False
+audio_only           = False
+download_in_progress = False
+thumb_texture        = None
+current_filesize     = 0
+progress_value       = 0
+video_info           = {
     "title": "",
     "thumbnail": "",
     "duration": "",
@@ -279,10 +280,12 @@ def download_video():
     global audio_only
     global current_filesize
     global current_filepath
+    global download_in_progress
     global progress_value
     global is_playlist
 
     try:
+        download_in_progress = True
         progress_value = 0
         yt = YT(video_link)
         if not os.path.exists(DOWNLOAD_PATH):
@@ -318,11 +321,6 @@ def download_video():
                     f.write(chunk)
                     progress_value += len(chunk)
                     sleep(0.001)
-                task_status = "Download complete."
-                LOG.info("Download complete.")
-                sleep(3)
-                progress_value = 0
-                task_status = "Ready."
 
             if audio_only:
                 old_file = str(current_filepath).replace(".m4a", ".mp3")
@@ -330,13 +328,25 @@ def download_video():
                     os.remove(old_file)
                 base, _ = os.path.splitext(current_filepath)
                 os.rename(current_filepath, base + '.mp3')
+            task_status = "Download complete."
+            LOG.info("Download complete.")
+            sleep(3)
+            progress_value = 0
+            task_status = "Ready."
+            download_in_progress = False
         except Exception as e:
             task_status = "Download failed. Check the log for more info."
             LOG.error(f"Download failed: {e}")
+            sleep(2)
+            task_status = "Ready."
+            download_in_progress = False
 
     except Exception as e:
         task_status = f"An exception has occured! Check the log for more info."
         LOG.error(f"Download failed: {e}")
+        sleep(2)
+        task_status = "Ready."
+        download_in_progress = False
 
 
 def download_playlist():
@@ -346,6 +356,7 @@ def download_playlist():
     global audio_only
     global current_filesize
     global current_filepath
+    global download_in_progress
     global progress_value
     global is_playlist
     global video_info
@@ -357,6 +368,7 @@ def download_playlist():
     progress_value   = 0
 
     try:
+        download_in_progress = True
         yt = Playlist(video_link)
         if not os.path.exists(DOWNLOAD_PATH):
             os.makedirs(DOWNLOAD_PATH)
@@ -426,12 +438,14 @@ def download_playlist():
         LOG.info("Download complete.")
         sleep(3)
         progress_value = 0
+        download_in_progress = False
         task_status = "Ready."
     except Exception as e:
         task_status = "An error occured! Check the log for more details."
         LOG.error(f"Failed to download YouTube Playlist! Traceback: {e}")
-
-download_process = Thread(target = download_video if not is_playlist else download_playlist, daemon = True)
+        sleep(2)
+        task_status = "Ready."
+        download_in_progress = False
 
 
 def update_progress_bar():
@@ -455,6 +469,7 @@ def OnDraw():
     global audio_only
     global current_filesize
     global current_filepath
+    global download_in_progress
 
     imgui.create_context()
     window, text_cursor, hand_cursor = gui.new_window("YouTube Downloader", 640, 480, False)
@@ -527,7 +542,7 @@ def OnDraw():
             if len(video_link) > 0 and (link_entered or search_button_pressed):
                 video_info_thread = None
                 clear_info_table()
-                video_info_thread = Thread(target = get_video_info, daemon=True)
+                video_info_thread = Thread(target = get_video_info, daemon = True)
                 video_info_thread.start()
             imgui.dummy(1, 15)
             if is_valid_title():
@@ -566,15 +581,16 @@ def OnDraw():
                         _, res_index = imgui.combo("Video Resolution", res_index, RESOLUTIONS)
                     imgui.dummy(1, 5)
                     download_label = " Download" if not is_playlist else " Download Playlist"
-                    if not download_process.is_alive():
+                    if not download_in_progress:
                         if imgui.button(Icons.Download + download_label):
                             task_status = f"{Icons.Spinner} Starting download..."
-                            download_process.start()
+                            Thread(target = download_video if not is_playlist else download_playlist, daemon = True).start()
                         imgui.same_line(spacing=10)
                         if imgui.button(f"{Icons.Close} Clear"):
                             clear_info_table()
                             remove_thumbnails_folder()
                             video_link = ""
+                            task_status = "Idle."
                     else:
                         imgui.button(Icons.Spinner)
 
@@ -584,7 +600,7 @@ def OnDraw():
             imgui.text(f"Status: {task_status}")
             imgui.pop_text_wrap_pos()
 
-            if download_process.is_alive():
+            if download_in_progress:
                 if current_filesize > 0:
                     prgrs = progress_value / current_filesize
                     if is_playlist:
