@@ -23,6 +23,7 @@ import requests
 import subprocess
 import webbrowser
 
+from concurrent.futures      import ThreadPoolExecutor
 from datetime                import datetime, timedelta
 from imgui.integrations.glfw import GlfwRenderer
 from pytubefix               import YouTube as YT, Channel, Playlist
@@ -31,19 +32,23 @@ from time                    import sleep
 
 DOWNLOAD_PATH  = './YTDownloads'
 THUMBNAIL_PATH = './.thumbnail'
-RESOLUTIONS    = ["Auto",
-                 "144p", 
-                 "240p",
-                 "360p",
-                 "480p",
-                 "720p",
-                 "1080p",
-                 "1440p",
-                 "2160p",
-                ]
+AUDIO_FORMATS  = ["mp3", "m4a"]
+RESOLUTIONS    = [
+    "Auto",
+    "144p", 
+    "240p",
+    "360p",
+    "480p",
+    "720p",
+    "1080p",
+    "1440p",
+    "2160p",
+]
 
 Icons                = gui.Icons
+executor             = ThreadPoolExecutor(max_workers=2)
 res_index            = 0
+fmt_index            = 0
 video_link           = ""
 current_filepath     = ""
 task_status          = "Idle."
@@ -53,6 +58,7 @@ thumb_downloaded     = False
 audio_only           = False
 download_in_progress = False
 thumb_texture        = None
+video_info_thread    = None
 current_filesize     = 0
 progress_value       = 0
 video_info           = {
@@ -67,6 +73,27 @@ video_info           = {
 }
 
 
+def colored_button(label: str, color: list, hovered_color: list, active_color: list) -> bool:
+    imgui.push_style_color(imgui.COLOR_BUTTON, color[0], color[1], color[2])
+    imgui.push_style_color(imgui.COLOR_BUTTON_ACTIVE, hovered_color[0], hovered_color[1], hovered_color[2])
+    imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, active_color[0], active_color[1], active_color[2])
+    retbool = imgui.button(label)
+    imgui.pop_style_color(3)
+    return retbool
+
+
+def tooltip(text="", font=None, alpha=0.75):
+    if imgui.is_item_hovered():
+        imgui.push_style_var(imgui.STYLE_WINDOW_ROUNDING, 10)
+        imgui.set_next_window_bg_alpha(alpha)
+        if font:
+            with imgui.font(font):
+                imgui.set_tooltip(text)
+        else:
+            imgui.set_tooltip(text)
+        imgui.pop_style_var()
+
+
 def execute_once(func):
     def wrapper(*args, **kwargs):
         if not wrapper.has_run:
@@ -77,6 +104,8 @@ def execute_once(func):
 
 
 def remove_thumbnails_folder():
+    global thumb_downloaded
+    thumb_downloaded = False
     if os.path.exists(THUMBNAIL_PATH):
         if os.path.isfile(f"{THUMBNAIL_PATH}/temp.jpg"):
             os.remove(f"{THUMBNAIL_PATH}/temp.jpg")
@@ -84,8 +113,10 @@ def remove_thumbnails_folder():
 remove_thumbnails_folder()
 
 
-def open_download_folder():
-    subprocess.Popen(f"explorer {DOWNLOAD_PATH}")
+def open_downloads_folder():
+    if not os.path.exists(DOWNLOAD_PATH):
+        os.makedirs(DOWNLOAD_PATH)
+    subprocess.Popen(f"explorer {os.path.abspath(DOWNLOAD_PATH)}")
 
 
 def res_path(path: str) -> Path:
@@ -157,77 +188,9 @@ def clear_info_table():
     }
 
 
-def get_video_info():
-    global task_status
-    global video_info
-    global video_link
-    global is_available
-    global is_playlist
-
-    if len(video_link) > 0:
-        if is_valid_url(video_link):
-            is_playlist = is_playlist_url(video_link)
-            task_status = f"{Icons.Spinner} Loading information..."
-            LOG.info(f"Loading information from {video_link}")
-            thumbnail_thread()
-            if not is_playlist:
-                try:
-                    video = YT(video_link)
-                    if is_video_available(video_link):
-                        is_available = True
-                        video_info["title"]        = video.title
-                        video_info["thumbnail"]    = video.thumbnail_url
-                        video_info["duration"]     = format_time(video.length)
-                        video_info["views"]        = f"{video.views:,}"
-                        video_info["date"]         = get_date_diff(video.publish_date)
-                        video_info["channel_url"]  = Channel(video.channel_url)
-                        video_info["channel_name"] = Channel(video.channel_url).channel_name
-                        LOG.info(f"The link provided is a YouTube video from {video_info["channel_name"]} with {video_info["views"]} total views.")
-                        task_status = "Done."
-                    else:
-                        is_available = False
-                        task_status = "This video is unavailable!"
-                        clear_info_table()
-                        LOG.info("This video is unavailable!")
-                except Exception as e:
-                    clear_info_table()
-                    task_status = f"An error occured. Check the log for more information."
-                    LOG.error(f"An error occured while trying to get information from YouTube: {e}")
-            else:
-                duration_count = 0
-                playlist = Playlist(video_link)
-                is_available = True
-                video_info["title"] = playlist.title
-                video_info["thumbnail"] = playlist.thumbnail_url
-                video_info["views"] = f"{playlist.views:,}"
-                video_info["date"] = ""
-                video_info["channel_url"]  = Channel(playlist.owner_url)
-                video_info["channel_name"] = Channel(playlist.owner_url).channel_name
-                for vid in playlist.videos:
-                    video_info["video_count"] += 1
-                    duration_count += vid.length
-                video_info["duration"] = format_time(duration_count)
-                task_status = "Done."
-                LOG.info(f"The link provided is a YouTube playlist with {video_info["video_count"]} videos totaling {video_info["duration"]} of watch time.")
-        else:
-            is_available = False
-            task_status = "Invalid link."
-            LOG.warning("Failed to get information! The link provided is invalid.")
-            clear_info_table()
-    else:
-        is_available = False
-        clear_info_table()
-    sleep(3)
-    task_status = "Ready."
-
-
 def download_thumbnail():
     global thumb_downloaded
     thumb_downloaded = False
-
-    while not is_valid_title():
-        sleep(0.1)
-
     try:
         LOG.info("Downloading YouTube Thumbnail...")
         url = video_info["thumbnail"]
@@ -252,25 +215,86 @@ def download_thumbnail():
         pass
 
 
+def get_video_info():
+    global task_status
+    global video_info
+    global video_link
+    global is_available
+    global is_playlist
+
+    if len(video_link) > 0:
+        if is_valid_url(video_link):
+            remove_thumbnails_folder()
+            is_playlist = is_playlist_url(video_link)
+            task_status = f"{Icons.Spinner} Loading information..."
+            LOG.info(f"Loading information from {video_link}")
+            if not is_playlist:
+                try:
+                    video = YT(video_link)
+                    is_available = True
+                    video_info["title"]        = video.title
+                    video_info["thumbnail"]    = video.thumbnail_url
+                    video_info["duration"]     = format_time(video.length)
+                    video_info["views"]        = f"{video.views:,}"
+                    video_info["date"]         = get_date_diff(video.publish_date)
+                    video_info["channel_url"]  = Channel(video.channel_url)
+                    video_info["channel_name"] = Channel(video.channel_url).channel_name
+                    LOG.info(f"The link provided is a YouTube video from {video_info["channel_name"]} with {video_info["views"]} total views.")
+                    task_status = "Done."
+                except:
+                    is_available = False
+                    task_status = "This video is unavailable!"
+                    clear_info_table()
+                    LOG.info("This video is unavailable!")
+            else:
+                try:
+                    duration_count = 0
+                    playlist = Playlist(video_link)
+                    is_available = True
+                    video_info["title"] = playlist.title
+                    video_info["thumbnail"] = playlist.thumbnail_url
+                    video_info["views"] = f"{playlist.views:,}"
+                    video_info["date"] = ""
+                    video_info["channel_url"]  = Channel(playlist.owner_url)
+                    video_info["channel_name"] = Channel(playlist.owner_url).channel_name
+                    for vid in playlist.videos:
+                        video_info["video_count"] += 1
+                        duration_count += vid.length
+                    video_info["duration"] = format_time(duration_count)
+                    task_status = "Done."
+                    LOG.info(f"The link provided is a YouTube playlist with {video_info["video_count"]} videos totaling {video_info["duration"]} of watch time.")
+                except:
+                    clear_info_table()
+                    task_status = "This playlist is unavailable."
+                    LOG.error("Playlist unavailable.")
+            if video_info["thumbnail"] != "":
+                download_thumbnail()
+        else:
+            is_available = False
+            task_status = "Invalid link."
+            LOG.warning("Failed to get information! The link provided is invalid.")
+            clear_info_table()
+    else:
+        is_available = False
+        clear_info_table()
+    sleep(3)
+    task_status = "Ready."
+
+
+def run_video_info():
+    global video_info_thread
+    if video_info_thread and not video_info_thread.done():
+        pass
+    else:
+        video_info_thread = executor.submit(get_video_info)
+
+
 def is_valid_title() -> bool:
     global video_info
     try:
         return is_available and len(video_info) > 0 and len(video_info["title"]) > 0 and video_info["title"] != "Invalid link."
     except:
         return False
-
-
-def thumbnail_thread():
-    Thread(target = download_thumbnail, daemon = True).start()
-
-
-def colored_button(label: str, color: list, hovered_color: list, active_color: list) -> bool:
-    imgui.push_style_color(imgui.COLOR_BUTTON, color[0], color[1], color[2])
-    imgui.push_style_color(imgui.COLOR_BUTTON_ACTIVE, hovered_color[0], hovered_color[1], hovered_color[2])
-    imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, active_color[0], active_color[1], active_color[2])
-    retbool = imgui.button(label)
-    imgui.pop_style_color(3)
-    return retbool
 
 
 def download_video():
@@ -322,7 +346,7 @@ def download_video():
                     progress_value += len(chunk)
                     sleep(0.001)
 
-            if audio_only:
+            if audio_only and fmt_index == 0:
                 old_file = str(current_filepath).replace(".m4a", ".mp3")
                 if os.path.exists(old_file):
                     os.remove(old_file)
@@ -462,6 +486,7 @@ def progress_bar_thread():
 
 def OnDraw():
     global res_index
+    global fmt_index
     global task_status
     global video_info
     global video_link
@@ -540,10 +565,8 @@ def OnDraw():
             imgui.same_line()
             search_button_pressed = colored_button(f"  {Icons.Search}  ", [0.1, 0.1, 0.1], [0.2, 0.2, 0.2], [0.3, 0.3, 0.3])
             if len(video_link) > 0 and (link_entered or search_button_pressed):
-                video_info_thread = None
                 clear_info_table()
-                video_info_thread = Thread(target = get_video_info, daemon = True)
-                video_info_thread.start()
+                run_video_info()
             imgui.dummy(1, 15)
             if is_valid_title():
                 if thumb_downloaded:
@@ -572,13 +595,16 @@ def OnDraw():
                     else:
                         imgui.text(f"{Icons.YouTube} {video_info["video_count"]} videos.")
                     imgui.pop_text_wrap_pos()
-                if not video_info_thread.is_alive():
+                if video_info_thread and video_info_thread.done():
                     imgui.dummy(1, 5)
-                    _, audio_only = imgui.checkbox("Audio Only (MP3)", audio_only)
+                    _, audio_only = imgui.checkbox("Audio Only", audio_only)
+                    imgui.same_line(spacing=10)
+                    imgui.set_next_item_width(200)
                     if not audio_only:
-                        imgui.same_line(spacing=10)
-                        imgui.set_next_item_width(200)
                         _, res_index = imgui.combo("Video Resolution", res_index, RESOLUTIONS)
+                        tooltip("It's recommended to keep this on 'Auto'.", None, 0.8)
+                    else:
+                        _, fmt_index = imgui.combo("Audio Format", fmt_index, AUDIO_FORMATS)
                     imgui.dummy(1, 5)
                     download_label = " Download" if not is_playlist else " Download Playlist"
                     if not download_in_progress:
@@ -607,17 +633,19 @@ def OnDraw():
                         prgrs = prgrs / video_info["video_count"]
                     imgui.progress_bar(prgrs, (620, 5))
 
-        imgui.dummy(win_w - 60, 1)
+        imgui.dummy(win_w / 2 - 40, 1)
         imgui.same_line()
+        imgui.text(Icons.Folder)
+        tooltip("Click to open the downloads folder", small_font, 0.75)
+        set_cursor(window, hand_cursor)
+        if imgui.is_item_hovered() and imgui.is_item_clicked():
+            open_downloads_folder()
+        imgui.same_line(spacing=20)
         imgui.text(Icons.GitHub)
-        if imgui.is_item_hovered():
-            set_cursor(window, hand_cursor)
-            imgui.push_style_var(imgui.STYLE_WINDOW_ROUNDING, 10)
-            with imgui.font(small_font):
-                imgui.set_tooltip('Click to visit the GitHub repo')
-            imgui.pop_style_var()
-            if imgui.is_item_clicked():
-                webbrowser.open("https://github.com/xesdoog/YouTube-Downloader-V2")
+        tooltip("Click to visit the GitHub repo", small_font, 0.75)
+        set_cursor(window, hand_cursor)
+        if imgui.is_item_hovered() and imgui.is_item_clicked():
+            webbrowser.open("https://github.com/xesdoog/YouTube-Downloader-V2")
         imgui.pop_font()
         imgui.pop_style_color(9)
         imgui.pop_style_var(5)
