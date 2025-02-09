@@ -33,6 +33,17 @@ jobs:
         pip install flake8 pyinstaller
         pip install -r requirements.txt
 
+    - name: Install UPX
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip" -OutFile "./upx.zip"
+        Expand-Archive -Path "./upx.zip" -DestinationPath "./upx"
+    
+    - name: Install MinGW-w64
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        platform: x64
+        version: latest
+
     - name: Verify With Flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
@@ -42,7 +53,11 @@ jobs:
 
     - name: Build Executable
       run: |
-        pyinstaller "main.py" --noconfirm --onefile --windowed --name "YouTube-Downloader" --clean --version-file "./version.txt" --icon "./src/assets/img/ytd_icon.ico" --splash "./src/assets/img/ytd_splash.png" --add-data "./src;src/" --add-binary "./src/assets/dll/glfw3.dll;." --add-binary "./src/assets/dll/msvcr110.dll;."
+        pyinstaller "main.py" --noconfirm --onefile --windowed --name "YouTube-Downloader" --clean --version-file "./version.txt" --icon "./src/assets/img/ytd_icon.ico" --splash "./src/assets/img/ytd_splash.png" --add-data "./src;src/" --add-binary "./src/assets/dll/glfw3.dll;." --add-binary "./src/assets/dll/msvcr110.dll;." --upx-dir "./upx" --upx-exclude "vcruntime140.dll"
+
+    - name: Strip Debug Symbols
+      run: |
+        strip.exe dist\YouTube-Downloader.exe
 
     - name: Generate Build Info
       id: var
@@ -64,61 +79,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Delete Old Release
-        id: delete_ex_release
+        id: delete_old_release
         uses: actions/github-script@v7
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const tag = "YTD";
             const releases = await github.rest.repos.listReleases({
               owner: owner,
               repo: repo,
             });
 
-            for (const release of releases.data) {
+            const release = releases.data.find(release => release.tag_name === tag);
+            if (release) {
               await github.rest.repos.deleteRelease({
                 owner: owner,
                 repo: repo,
                 release_id: release.id,
               });
               console.log(`Deleted release with ID ${release.id}`);
+            } else {
+              console.log("No existing release to delete");
             }
 
-            const tags = await github.rest.repos.listTags({
-              owner: owner,
-              repo: repo,
-            });
+            try {
+              await github.rest.git.deleteRef({
+                owner: owner,
+                repo: repo,
+                ref: `tags/${tag}`,
+              });
+              console.log(`Deleted tag ${tag}`);
+            } catch (error) {
+              console.error(`Error deleting tag: ${error.message}`);
+            }
 
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
           name: binary
-
-      - name: Increment Version
-        id: increment_version
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const tags = await github.rest.repos.listTags({
-              owner: owner,
-              repo: repo,
-            });
-            let newVersion;
-            let oldTag;
-            if (tags.data.length === 0) {
-              console.log('No existing tags found. Starting with version v1.0.1');
-              newVersion = 'v1.0.0';
-            } else {
-              const latestTag = tags.data[0].name;
-              const versionParts = latestTag.substring(1).split('.').map(Number);
-              versionParts[2] += 1; // Increment the patch version
-              newVersion = `v${versionParts.join('.')}`;
-              oldTag = latestTag;
-            }
-            core.setOutput("new_version", newVersion); 
-            core.setOutput("old_tag", oldTag);
         
       - name: Echo build_sha256
         id: build_sha
@@ -130,8 +129,8 @@ jobs:
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          name: YouTube Downloader ${{ steps.increment_version.outputs.new_version }}
-          tag_name: ${{ steps.increment_version.outputs.new_version }}
+          name: YouTube Downloader
+          tag_name: "YTD"
           body: |
               >[!NOTE]
               >**This automatic release was built by Github Actions**
