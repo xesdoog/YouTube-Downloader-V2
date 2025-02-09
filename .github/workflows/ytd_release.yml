@@ -37,19 +37,8 @@ jobs:
       run: |
         Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip" -OutFile "./upx.zip"
         Expand-Archive -Path "./upx.zip" -DestinationPath "./upx"
-    
-    # - name: Install MinGW-w64
-    #   uses: egor-tensin/setup-mingw@v2
-    #   with:
-    #     platform: x64
-    #     version: latest
 
-    - name: Verify MinGW-w64 Installation
-      run: |
-        gcc --version
-        strip --version
-
-    - name: Verify With Flake8
+    - name: Review Code With Flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -59,10 +48,6 @@ jobs:
     - name: Build Executable
       run: |
         pyinstaller "main.py" --noconfirm --onefile --windowed --name "YouTube-Downloader" --clean --version-file "./version.txt" --icon "./src/assets/img/ytd_icon.ico" --splash "./src/assets/img/ytd_splash.png" --add-data "./src;src/" --add-binary "./src/assets/dll/glfw3.dll;." --add-binary "./src/assets/dll/msvcr110.dll;." --upx-dir "./upx" --upx-exclude "vcruntime140.dll"
-
-    - name: Strip Debug Symbols
-      run: |
-        strip.exe dist\YouTube-Downloader.exe
 
     - name: Generate Build Info
       id: var
