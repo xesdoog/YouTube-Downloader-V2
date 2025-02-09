@@ -1,4 +1,6 @@
-import os, sys
+import os
+import sys
+
 if getattr(sys, 'frozen', False):
     import pyi_splash # type: ignore
 
@@ -44,6 +46,7 @@ RESOLUTIONS    = [
     "1440p",
     "2160p",
 ]
+
 
 Icons                = gui.Icons
 executor             = ThreadPoolExecutor(max_workers=2)
@@ -154,14 +157,14 @@ def is_valid_url(url) -> bool:
     try:
         _ = YT(url)
         return True
-    except:
+    except Exception:
         return False
 
 
 def is_playlist_url(url) -> bool:
     try:
         return str(url).find("list=") != -1
-    except:
+    except Exception:
         return False
 
 
@@ -170,7 +173,7 @@ def is_video_available(url) -> bool:
         video = YT(url)
         video.check_availability() 
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -241,7 +244,7 @@ def get_video_info():
                     video_info["channel_name"] = Channel(video.channel_url).channel_name
                     LOG.info(f"The link provided is a YouTube video from {video_info["channel_name"]} with {video_info["views"]} total views.")
                     task_status = "Done."
-                except:
+                except Exception:
                     is_available = False
                     task_status = "This video is unavailable!"
                     clear_info_table()
@@ -263,7 +266,7 @@ def get_video_info():
                     video_info["duration"] = format_time(duration_count)
                     task_status = "Done."
                     LOG.info(f"The link provided is a YouTube playlist with {video_info["video_count"]} videos totaling {video_info["duration"]} of watch time.")
-                except:
+                except Exception:
                     clear_info_table()
                     task_status = "This playlist is unavailable."
                     LOG.error("Playlist unavailable.")
@@ -292,8 +295,12 @@ def run_video_info():
 def is_valid_title() -> bool:
     global video_info
     try:
-        return is_available and len(video_info) > 0 and len(video_info["title"]) > 0 and video_info["title"] != "Invalid link."
-    except:
+        return (
+            is_available and len(video_info) > 0 and
+            len(video_info["title"]) > 0 and
+            video_info["title"] != "Invalid link."
+            )
+    except Exception:
         return False
 
 
@@ -453,7 +460,7 @@ def download_playlist():
                         os.remove(old_file)
                     base, _ = os.path.splitext(current_filepath)
                     os.rename(current_filepath, base + '.mp3')
-            except Exception as e:
+            except Exception:
                 task_status = "Download failed! Skipping this video."
                 LOG.warning(f"({current_download}/{len(streams)}): Download failed! Skipping this video.")
                 continue
@@ -574,7 +581,7 @@ def OnDraw():
                         thumb_texture, _, _ = gui.draw_image(Path(THUMBNAIL_PATH) / "temp.jpg")
                         imgui.image(thumb_texture, 300, 200)
                     imgui.same_line()
-                
+
                 with imgui.begin_child("##vid_info", -1, 220, False):
                     imgui.push_text_wrap_pos(290)
                     imgui.dummy(1, 10)

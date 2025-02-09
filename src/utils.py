@@ -4,8 +4,10 @@ import os
 import platform
 import sys
 
+
 def executable_path():
     return os.path.dirname(os.path.abspath(sys.argv[0]))
+
 
 class LOGGER:
     def __init__(self):
@@ -52,3 +54,4 @@ class LOGGER:
         logfile.write(f"    ¤ Executable Directory: {exeDir}\n\n\n")
         logfile.flush()
         logfile.close()
+

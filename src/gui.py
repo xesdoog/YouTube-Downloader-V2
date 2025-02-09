@@ -5,10 +5,11 @@ import OpenGL.GL as gl
 from cv2        import cvtColor, imread, COLOR_BGR2RGBA, IMREAD_UNCHANGED
 from pathlib    import Path
 from PIL        import Image
-from pywintypes import error as pywinErr
+from src        import utils
 
 PARENT_PATH = Path(__file__).parent
 ASSETS_PATH = PARENT_PATH / Path(r"assets")
+LOG         = utils.LOGGER()
 
 
 def relative_path(path: str):
@@ -31,7 +32,7 @@ def draw_image(path):
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
         return texture, w, h
     except Exception as e:
-        print(e)
+        LOG.error(f"Unhandled exception in function draw_image(): {e}")
         return None, 0, 0
 
 
@@ -103,3 +104,4 @@ class Icons:
     GitHub    = "\uf09b"
     Spinner   = "\uf110"
     YouTube   = "\uf167"
+
