@@ -38,11 +38,16 @@ jobs:
         Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip" -OutFile "./upx.zip"
         Expand-Archive -Path "./upx.zip" -DestinationPath "./upx"
     
-    - name: Install MinGW-w64
-      uses: egor-tensin/setup-mingw@v2
-      with:
-        platform: x64
-        version: latest
+    # - name: Install MinGW-w64
+    #   uses: egor-tensin/setup-mingw@v2
+    #   with:
+    #     platform: x64
+    #     version: latest
+
+    - name: Verify MinGW-w64 Installation
+      run: |
+        gcc --version
+        strip --version
 
     - name: Verify With Flake8
       run: |
